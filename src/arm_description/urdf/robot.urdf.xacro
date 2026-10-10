@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="decodelabs_arm_workspace">
+
+  <!-- Include UR5e + Gazebo plugin -->
+  <xacro:include filename="$(find arm_description)/urdf/ur5e.urdf.xacro" />
+
+  <!-- Include Workspace Objects (Table, Cube, Cylinder) -->
+  <xacro:include filename="$(find arm_description)/urdf/workspace_objects.xacro" />
+
+</robot>
