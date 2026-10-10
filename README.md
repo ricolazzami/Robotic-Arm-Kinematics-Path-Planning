@@ -1,4 +1,4 @@
-# DecodeLabs Project 1: Robotic Arm Kinematics & Path Planning
+# Robotic Arm Kinematics & Path Planning
 
 Digital brain implementation for a 6-DOF UR5e robotic manipulator operating in ROS 2 simulation. The system receives arbitrary 3D target poses (position and orientation), calculates joint angles using Inverse Kinematics, generates smooth time-parameterized trajectories using quintic polynomial splines, validates paths against environmental collision objects using the Flexible Collision Library (FCL), and coordinates execution with safety mechanisms (emergency stop, workspace bounds, and velocity limits).
 
