@@ -3,12 +3,10 @@
 
   <xacro:include filename="$(find ur_description)/urdf/ur_macro.xacro" />
 
-  <link name="world"/>
-
   <xacro:ur_robot
     name="ur5e"
     tf_prefix=""
-    parent="world"
+    parent="l0"
     joint_limits_parameters_file="$(find ur_description)/config/ur5e/joint_limits.yaml"
     kinematics_parameters_file="$(find ur_description)/config/ur5e/default_kinematics.yaml"
     physical_parameters_file="$(find ur_description)/config/ur5e/physical_parameters.yaml"
@@ -18,17 +16,11 @@
     safety_pos_margin="0.0"
     safety_k_position="20"
     use_fake_hardware="true"
-    fake_sensor_commands="false"
+    fake_sensor_commands="true"
     sim_gazebo="false"
     headless_mode="false"
     >
-    <origin xyz="0 0 0" rpy="0 0 0" />
+    <origin xyz="0 0 0.025" rpy="0 0 0" />
   </xacro:ur_robot>
-
-  <gazebo>
-    <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
-      <parameters>$(find arm_control)/config/controllers.yaml</parameters>
-    </plugin>
-  </gazebo>
 
 </robot>

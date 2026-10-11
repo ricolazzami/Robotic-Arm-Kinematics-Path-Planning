@@ -24,6 +24,13 @@ Thumbs.db
 # Test artifacts
 *.log
 
+# External dependencies
+src/control_msgs/
+src/gazebo_ros2_control/
+src/ros2_control/
+src/ros2_controllers/
+src/trac_ik/
+
 # Env / secrets - jangan push
 .env
 .env.*

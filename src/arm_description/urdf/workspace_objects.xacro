@@ -1,18 +1,17 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="workspace_objects">
 
-  <!-- Table: 1.0m x 0.6m x 0.05m, positioned below robot -->
   <link name="table_link">
     <visual>
       <geometry><box size="1.0 0.6 0.05"/></geometry>
-      <origin xyz="0.5 0.0 -0.025" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
       <material name="brown">
         <color rgba="0.6 0.4 0.2 1.0"/>
       </material>
     </visual>
     <collision>
       <geometry><box size="1.0 0.6 0.05"/></geometry>
-      <origin xyz="0.5 0.0 -0.025" rpy="0 0 0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
     </collision>
     <inertial>
       <mass value="50.0"/>
@@ -20,19 +19,7 @@
     </inertial>
   </link>
 
-  <joint name="base_link_to_table" type="fixed">
-    <parent link="base_link"/>
-    <child link="table_link"/>
-    <origin xyz="0 0 -0.5" rpy="0 0 0"/>
-  </joint>
-
-  <!-- Gazebo material for table -->
-  <gazebo reference="table_link">
-    <material>Gazebo/Wood</material>
-    <static>true</static>
-  </gazebo>
-
-  <!-- Cube 1: 0.05m x 0.05m x 0.05m, at (0.4, 0.2, 0.025) -->
+  <!-- Cube 1: on table at (0.0, 0.15, 0.05) relative to table center -->
   <link name="cube_1_link">
     <visual>
       <geometry><box size="0.05 0.05 0.05"/></geometry>
@@ -51,17 +38,13 @@
     </inertial>
   </link>
 
-  <joint name="base_link_to_cube_1" type="fixed">
-    <parent link="base_link"/>
+  <joint name="table_to_cube_1" type="fixed">
+    <parent link="table_link"/>
     <child link="cube_1_link"/>
-    <origin xyz="0.4 0.2 -0.475" rpy="0 0 0"/>
+    <origin xyz="0.0 0.15 0.05" rpy="0 0 0"/>
   </joint>
 
-  <gazebo reference="cube_1_link">
-    <material>Gazebo/Red</material>
-  </gazebo>
-
-  <!-- Cylinder 1: radius 0.025m, height 0.1m, at (0.4, -0.2, 0.05) -->
+  <!-- Cylinder 1: on table at (0.0, -0.15, 0.075) relative to table center -->
   <link name="cylinder_1_link">
     <visual>
       <geometry><cylinder radius="0.025" length="0.1"/></geometry>
@@ -80,14 +63,10 @@
     </inertial>
   </link>
 
-  <joint name="base_link_to_cylinder_1" type="fixed">
-    <parent link="base_link"/>
+  <joint name="table_to_cylinder_1" type="fixed">
+    <parent link="table_link"/>
     <child link="cylinder_1_link"/>
-    <origin xyz="0.4 -0.2 -0.45" rpy="0 0 0"/>
+    <origin xyz="0.0 -0.15 0.075" rpy="0 0 0"/>
   </joint>
-
-  <gazebo reference="cylinder_1_link">
-    <material>Gazebo/Blue</material>
-  </gazebo>
 
 </robot>

@@ -1,10 +1,50 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="decodelabs_arm_workspace">
 
-  <!-- Include UR5e + Gazebo plugin -->
-  <xacro:include filename="$(find arm_description)/urdf/ur5e.urdf.xacro" />
+  <link name="world"/>
 
-  <!-- Include Workspace Objects (Table, Cube, Cylinder) -->
   <xacro:include filename="$(find arm_description)/urdf/workspace_objects.xacro" />
+
+  <joint name="world_to_table" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="world"/>
+    <child link="table_link"/>
+  </joint>
+
+  <joint name="table_to_l0" type="fixed">
+    <origin xyz="-0.35 0 0.05" rpy="0 0 0"/>
+    <parent link="table_link"/>
+    <child link="l0"/>
+  </joint>
+
+  <material name="silver">
+    <color rgba="0.9 0.9 0.98 1.0"/>
+  </material>
+
+  <link name="l0">
+    <inertial>
+      <origin xyz="0.0 0.0 25e-03" rpy="0 0 0"/>
+      <mass value="2e+00"/>
+      <inertia
+        ixx="9.3895308e-03" ixy="0.0" ixz="1.1882474e-03"
+        iyx="0.0" iyy="1.4207390e-02" iyz="9.2874266e-06"
+        izx="1.1882474e-04" izy="9.2874266e-06" izz="1.7661948e-02"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <cylinder radius="0.1" length="0.05"/>
+      </geometry>
+      <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+      <material name="silver"/>
+    </visual>
+  <collision>
+    <geometry>
+      <cylinder radius="0.1" length="0.05"/>
+    </geometry>
+    <origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+  </collision>
+ </link>
+
+  <xacro:include filename="$(find arm_description)/urdf/ur5e.urdf.xacro" />
 
 </robot>

@@ -6,7 +6,6 @@ from geometry_msgs.msg import PoseStamped
 from sensor_msgs.msg import JointState
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 import numpy as np
-from scipy.interpolate import CubicSpline
 import math
 
 class TrajectoryPlannerNode(Node):
@@ -14,7 +13,7 @@ class TrajectoryPlannerNode(Node):
         super().__init__('trajectory_planner_node')
         
         self.declare_parameter('velocity_limit', math.pi)
-        self.declare_parameter('min_waypoints', 10)
+        self.declare_parameter('min_waypoints', 50)
         
         self.velocity_limit = self.get_parameter('velocity_limit').value
         self.min_waypoints = self.get_parameter('min_waypoints').value

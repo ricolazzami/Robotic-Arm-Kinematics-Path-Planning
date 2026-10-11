@@ -6,7 +6,7 @@ controller_manager:
       type: joint_state_broadcaster/JointStateBroadcaster
 
     arm_controller:
-      type: trajectory_controller/JointTrajectoryController
+      type: joint_trajectory_controller/JointTrajectoryController
 
 arm_controller:
   ros__parameters:

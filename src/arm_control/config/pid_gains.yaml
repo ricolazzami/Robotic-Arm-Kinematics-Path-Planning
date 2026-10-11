@@ -1,9 +1,0 @@
-gazebo_ros2_control:
-  ros__parameters:
-    pid_gains:
-      shoulder_pan_joint: {p: 4000.0, i: 0.0, d: 50.0}
-      shoulder_lift_joint: {p: 4000.0, i: 0.0, d: 50.0}
-      elbow_joint: {p: 2000.0, i: 0.0, d: 20.0}
-      wrist_1_joint: {p: 500.0, i: 0.0, d: 5.0}
-      wrist_2_joint: {p: 500.0, i: 0.0, d: 5.0}
-      wrist_3_joint: {p: 100.0, i: 0.0, d: 1.0}
