@@ -1,227 +1,229 @@
 # DecodeLabs Project 1: Robotic Arm Kinematics & Path Planning
 
-Aku bikin "otak digital" buat lengan robot UR5e 6-DOF di ROS 2. Intinya: kirim titik tujuan dalam ruang (x, y, z + orientasi), robot otomatis hitung tekukan sendinya, bikin jalur gerakan yang halus, cek dulu aman atau nabrak, baru digerakkan di RViz. Gazebo sengaja tidak dipakai biar enteng — cukup RViz + FakeSystem aja.
+A digital brain for a 6-DOF UR5e manipulator running on ROS 2. Send a target pose in space (position + orientation), and the system computes the joint angles, builds a smooth trajectory, checks it for collisions, then moves the arm in RViz. Gazebo is intentionally left out to keep things light — RViz + FakeSystem is enough here.
 
 ![Architecture](docs/architecture.png)
 
-*Diagram interaktif: [docs/architecture.html](docs/architecture.html)*
+*Interactive diagram: [docs/architecture.html](docs/architecture.html)*
 
 ---
 
-## Daftar Isi
-1. [Fitur Utama](#fitur-utama)
+## Contents
+1. [Key Features](#key-features)
 2. [Tech Stack](#tech-stack)
-3. [Apa yang Terjadi di Balik Layar (IPO)](#apa-yang-terjadi-di-balik-layar-ipo)
-4. [Persamaan Matematis & Perhitungan](#persamaan-matematis--perhitungan)
-5. [Tata Letak File](#tata-letak-file)
-6. [Tiap Folder & Node Ngapain](#tiap-folder--node-ngapain)
-7. [Jalur Komunikasi ROS 2](#jalur-komunikasi-ros-2)
-8. [Cara Install & Build](#cara-install--build)
-9. [Cara Menjalankan](#cara-menjalankan)
-10. [Tes Tanpa Buka RViz](#tes-tanpa-buka-rviz)
-11. [Aturan Keselamatan](#aturan-keselamatan)
-12. [Kalau Ada Kendala](#kalau-ada-kendala)
+3. [How It Works (IPO)](#how-it-works-ipo)
+4. [Math & Calculations](#math--calculations)
+5. [Directory Layout](#directory-layout)
+6. [Packages & Nodes](#packages--nodes)
+7. [ROS 2 Interfaces](#ros-2-interfaces)
+8. [Install & Build](#install--build)
+9. [Running the System](#running-the-system)
+10. [Headless Test](#headless-test)
+11. [Safety Rules](#safety-rules)
+12. [Troubleshooting](#troubleshooting)
 13. [Author](#author)
 
 ---
 
-## Fitur Utama
+## Key Features
 
-- **Model robot asli — UR5e 6-DOF.** Bukan rakitan silinder sembarangan, tapi mesh dan parameter resmi dari `ur_description` v0.14, plus meja, kubus merah, dan silinder biru di atasnya.
-- **Otaknya pinter: TRAC-IK.** Cukup kasih posisi tujuan, node `ik_solver` langsung kasih tahu harus nekuk sendi berapa derajat. Ada cek batas juga biar sendi nggak dipaksa lewat nurani robot.
-- **Geraknya nggak kaku.** Pakai polinomial quintic — jadi jalan, kecepatan, sampai akselerasinya nyambung. Nggak menghentak.
-- **Takut nabrak? Aman.** Tiap langkah dijalur dicek sama FCL (Flexible Collision Library). Kalau bakal nyenggol meja atau balok, jalannya ditolak biar nggak terjadi kecelakaan.
-- **Ada manajernya.** Satu node (`planning_coordinator`) atur alurnya: dapat target → cek transform → hitung IK → bikin jalur → cek tabrakan → jalan. Kalau ada tombol darurat ditekan, semua langsung dikunci.
+- **Real robot model — UR5e 6-DOF.** Official meshes and parameters from `ur_description`, plus a table, a red cube, and a blue cylinder on top.
+- **TRAC-IK solver.** Give it a target position and the `ik_solver` node returns the six joint angles. Joint limits are checked so no joint gets pushed past what the hardware allows.
+- **Smooth motion.** A quintic polynomial keeps position, velocity, and acceleration continuous — no jerky starts or stops.
+- **Collision-aware.** Every step along the path is checked with FCL (Flexible Collision Library). If it would hit the table or a block, the whole trajectory is rejected.
+- **Managed pipeline.** One node (`planning_coordinator`) runs the full sequence: receive target → check transform → solve IK → build trajectory → check collisions → move. An emergency stop locks everything down.
 
 ---
 
 ## Tech Stack
 
-| Komponen | Pakainya | Buat apa |
+| Component | Choice | Purpose |
 |---|---|---|
-| **Middleware** | ROS 2 Humble | Ngobrol antar node |
-| **Robot** | UR5e Universal Robots | Lengan 6 sendi |
-| **Model fisik** | URDF/Xacro | Rangka, mesh visual/collision |
-| **Visual** | RViz2 | Lihat robot gerak + preview jalur |
-| **Kontrol** | `ros2_control` FakeSystem | Simulasi tanpa hardware asli |
-| **Cek tabrakan** | `python-fcl` | Cek tiap titik bakal nabrak nggak |
-| **Bahasa** | Python 3.10+ (`rclpy`) | Node planning |
+| **Middleware** | ROS 2 Humble | Inter-node communication |
+| **Robot** | UR5e Universal Robots | 6-joint arm |
+| **Physical model** | URDF/Xacro | Links, visual/collision meshes |
+| **Visualization** | RViz2 | Watch the arm move + preview paths |
+| **Control** | `ros2_control` FakeSystem | Simulation without real hardware |
+| **Collision** | `python-fcl` | Per-waypoint collision checks |
+| **Language** | Python 3.10+ (`rclpy`) | Planning nodes |
 
-> Kenapa nggak pakai Gazebo? Awalnya pakai, tapi berat dan sering crash di Linux headless. Buat nguji kinematika, trajectory, sama collision, RViz-only sudah cukup dan jauh lebih ringan.
-
----
-
-## Apa yang Terjadi di Balik Layar (IPO)
-
-Bayangin alurnya kayak gini:
-
-**Input** — Kamu kirim pesan `PoseStamped` ke topik `/planning/target_pose`. Isinya: koordinat `x, y, z` (meter) + orientasi `qx, qy, qz, qw` (quaternion), frame-nya `base_link`.
-
-**Process** — Sistem kerja berurutan:
-1. Cek transform `base_link` masih fresh (umur ≤1 detik).
-2. Hitung IK pakai TRAC-IK (coba sampai 3 kali, timeout 50ms).
-3. Bikin trajectory quintic minimal 60 titik, durasi otomatis (batas kecepatan `π rad/s`).
-4. Cek tabrakan multi-link untuk setiap titik pakai FCL.
-
-**Output** — Kalau lolos, kirim `JointTrajectory` ke `/planning/trajectory_preview` buat ditampilin di RViz, plus marker rintangan di `/collision_scene_markers`. Kalau gagal, kasih tau kenapa: `IK_NO_SOLUTION`, `COLLISION_DETECTED`, atau `OUT_OF_WORKSPACE`.
+> Why no Gazebo? It was used at first, but it is heavy and tends to crash on headless Linux. For testing kinematics, trajectories, and collisions, RViz-only is lighter and sufficient.
 
 ---
 
-## Persamaan Matematis & Perhitungan
+## How It Works (IPO)
 
-Bagian ini buat yang penasaran rumusnya — bisa skip kalau cuma mau jalanin robot.
+**Input** — Publish a `PoseStamped` message to `/planning/target_pose`: coordinates `x, y, z` (meters) plus orientation `qx, qy, qz, qw` (quaternion), in the `base_link` frame.
 
-### 1. Validasi Quaternion
+**Process** — The system runs these steps in order:
+1. Check the `base_link` transform is still fresh (age ≤ 1 second).
+2. Solve IK with TRAC-IK (up to 3 attempts, 50 ms timeout each).
+3. Build a quintic trajectory with at least 60 waypoints (joint speed limit `π rad/s`).
+4. Check every waypoint for multi-link collisions using FCL.
 
-Quaternion harus ternormalisasi supaya rotasi valid:
+**Output** — On success, a `JointTrajectory` goes to `/planning/trajectory_preview` for RViz, plus obstacle markers on `/collision_scene_markers`. On failure you get a clear reason: `IK_NO_SOLUTION`, `COLLISION_DETECTED`, or `OUT_OF_WORKSPACE`.
+
+---
+
+## Math & Calculations
+
+This section covers the formulas behind the pipeline — skip it if you only want to run the robot.
+
+### 1. Quaternion Validation
+
+Quaternions must be normalized for a valid rotation:
 
 $$\sqrt{q_x^2 + q_y^2 + q_z^2 + q_w^2} = 1 \pm 0.001$$
 
-Kalau nilainya melenceng, solver nolak targetnya.
+Targets outside this tolerance are rejected.
 
-### 2. Batas Workspace Robot
+### 2. Workspace Limits
 
-UR5e cuma bisa jangkau area silinder. Cek dulu sebelum dihitung:
+The UR5e can only reach inside a cylinder. Check before computing:
 
-$$R = \sqrt{x^2 + y^2} \le 0.85\ \text{m} \qquad |z| \le 1.2\ \text{m}$$
+$$R = \sqrt{x^2 + y^2} \le 0.85~\text{m}, \quad |z| \le 1.2~\text{m}$$
 
-Lewat dari situ → `OUT_OF_WORKSPACE`.
+Anything beyond that returns `OUT_OF_WORKSPACE`.
 
-### 3. Forward Kinematics (DH Parameters UR5e)
+### 3. Forward Kinematics (UR5e DH Parameters)
 
-Tiap sendi punya matriks transform Denavit-Hartenberg:
+Each joint has a Denavit-Hartenberg transform:
 
-$$^{i-1}T_i = \begin{bmatrix} \cos\theta_i & -\sin\theta_i\cos\alpha_i & \sin\theta_i\sin\alpha_i & a_i\cos\theta_i \\ \sin\theta_i & \cos\theta_i\cos\alpha_i & -\cos\theta_i\sin\alpha_i & a_i\sin\theta_i \\ 0 & \sin\alpha_i & \cos\alpha_i & d_i \\ 0 & 0 & 0 & 1 \end{bmatrix}$$
+$$T_i = \begin{bmatrix} \cos\theta_i & -\sin\theta_i\cos\alpha_i & \sin\theta_i\sin\alpha_i & a_i\cos\theta_i \\ \sin\theta_i & \cos\theta_i\cos\alpha_i & -\cos\theta_i\sin\alpha_i & a_i\sin\theta_i \\ 0 & \sin\alpha_i & \cos\alpha_i & d_i \\ 0 & 0 & 0 & 1 \end{bmatrix}$$
 
-Kalikan semua dari base sampai tool:
+Chain them from base to tool:
 
-$$^0T_6 = \,^{0}T_1 \,^{1}T_2 \,^{2}T_3 \,^{3}T_4 \,^{4}T_5 \,^{5}T_6$$
+$$T_{06} = T_1 T_2 T_3 T_4 T_5 T_6$$
 
-Dari matriks ini kita ambil posisi `p = (x, y, z)` dan rotasi `R` buat collision check.
+Position `p = (x, y, z)` and rotation `R` come out of this matrix and feed the collision check.
 
-Parameter DH-nya (UR5e):
+UR5e DH parameters:
 
-| Link | $d$ (m) | $a$ (m) | $\alpha$ (rad) |
+| Link | d (m) | a (m) | alpha (rad) |
 |---|---|---|---|
-| 1 | 0.1625 | 0.0 | $\pi/2$ |
+| 1 | 0.1625 | 0.0 | pi/2 |
 | 2 | 0.0 | -0.425 | 0 |
 | 3 | 0.0 | -0.3922 | 0 |
-| 4 | 0.1333 | 0.0 | $\pi/2$ |
-| 5 | 0.0997 | 0.0 | $-\pi/2$ |
+| 4 | 0.1333 | 0.0 | pi/2 |
+| 5 | 0.0997 | 0.0 | -pi/2 |
 | 6 | 0.0996 | 0.0 | 0 |
 
-### 4. Inverse Kinematics (Fallback Geometri)
+### 4. Inverse Kinematics (Geometric Fallback)
 
-Kalau TRAC-IK Python belum ada, pakai fallback analitik 2-link di bidang radial:
+When the TRAC-IK Python wrapper is unavailable, an analytic 2-link fallback runs in the radial plane. Base yaw first:
 
-$$\theta_1 = \operatorname{atan2}(y, x)$$
+$$\theta_1 = \text{atan2}(y, x)$$
 
-$$D = \sqrt{r_{xy}^2 + \Delta z^2}, \quad r_{xy}=\sqrt{x^2+y^2}, \quad \Delta z = z - d_1$$
+Planar reach and elbow angle:
 
-$$\cos\theta_3 = \frac{D^2 - a_2^2 - a_3^2}{2 a_2 a_3} \quad\Rightarrow\quad \theta_3 = \arccos(\cos\theta_3)$$
+$$D = \sqrt{r^2 + h^2}, \quad r = \sqrt{x^2+y^2}, \quad h = z - d_1$$
 
-$$\alpha = \operatorname{atan2}(\Delta z, r_{xy}), \quad \beta = \operatorname{atan2}(a_3\sin\theta_3,\ a_2 + a_3\cos\theta_3)$$
+$$\cos\theta_3 = \frac{D^2 - a_2^2 - a_3^2}{2 a_2 a_3}, \quad \theta_3 = \text{arccos}(\cos\theta_3)$$
+
+Shoulder angle and wrist alignment:
+
+$$\alpha = \text{atan2}(h, r), \quad \beta = \text{atan2}(a_3\sin\theta_3, a_2 + a_3\cos\theta_3)$$
 
 $$\theta_2 = -(\alpha + \beta), \quad \theta_4 = -(\theta_2 + \theta_3), \quad \theta_5 = -\pi/2, \quad \theta_6 = 0$$
 
 ### 5. Trajectory — Quintic Polynomial Spline
 
-Biar geraknya halus (posisi, kecepatan, akselerasi kontinyu):
+Smooth motion with continuous position, velocity, and acceleration:
 
-$$\alpha = \frac{t}{T}, \qquad s(\alpha) = 10\alpha^3 - 15\alpha^4 + 6\alpha^5$$
+$$u = \frac{t}{T}, \quad s(u) = 10u^3 - 15u^4 + 6u^5$$
 
-$$\dot{s}(t) = \frac{30\alpha^2 - 60\alpha^3 + 30\alpha^4}{T}$$
+$$v(t) = \frac{30u^2 - 60u^3 + 30u^4}{T}$$
 
-Posisi dan kecepatan sendi:
+Joint positions and velocities:
 
-$$q_j(t) = q_{start,j} + s(\alpha)\,(q_{goal,j} - q_{start,j})$$
+$$q_j(t) = q_{start,j} + s(u)(q_{goal,j} - q_{start,j})$$
 
-$$\dot{q}_j(t) = \dot{s}(t)\,(q_{goal,j} - q_{start,j}), \quad |\dot{q}_j| \le \pi\ \text{rad/s}$$
+$$\dot{q}_j(t) = v(t)(q_{goal,j} - q_{start,j}), \quad |\dot{q}_j| \le \pi~\text{rad/s}$$
 
-Durasi dan waypoint:
+Duration and waypoint count:
 
-$$T = \max\left(3.0,\ 1.5 \cdot \max_j|q_{goal,j} - q_{start,j}|\right), \qquad N = 20 \cdot T \approx 60$$
+$$T = \max(3.0, 1.5 \cdot \max_j|q_{goal,j} - q_{start,j}|), \quad N = 20 \cdot T \approx 60$$
 
 ### 6. Collision Checking (FCL)
 
-Tiap link disampling jadi bola-bola kecil di sepanjang segmen:
+Each link is sampled as small spheres along its segment:
 
-$$p_{sample} = (1-\lambda)\,p_i + \lambda\,p_{i+1}, \quad \lambda \in [0,1], \quad r_i \in \{0.06, 0.05, 0.045, ...\}$$
+$$p = (1-t)p_i + t p_{i+1}, \quad t \in [0,1], \quad r_i \in \{0.06, 0.05, 0.045, ...\}$$
 
-Untuk tiap sample $C_{robot}$ dan tiap objek lingkungan $C_{env}$ (meja, kubus, silinder):
+Each sample is tested against every environment object (table, cube, cylinder):
 
-$$\text{collide}(C_{robot}, C_{env}) = \texttt{fcl.collide}(\text{Sphere}(r_i), \text{Box/Cylinder})$$
+$$\text{collide} = \text{fcl.collide}(\text{sphere}(r_i), \text{box or cylinder})$$
 
-Allowed Collision Matrix (ACM): `base ↔ table` diizinkan (robot memang duduk di meja), link bersebelahan diizinkan. Sisanya → kalau 1 titik saja collides → `COLLISION_DETECTED` + indeks waypoint.
+Allowed Collision Matrix (ACM): `base` vs `table` is allowed (the robot sits on the table), and adjacent links are allowed. Everything else — one colliding waypoint rejects the trajectory with `COLLISION_DETECTED` plus the waypoint index.
 
-### 7. Kecepatan & Waktu
+### 7. Timing
 
-Time parameterization simpel:
+Simple time parameterization (legacy form):
 
-$$T = \max\left(\frac{\max_j|\Delta q_j|}{\pi},\ 1.0\right) \quad \text{(lama)}$$
+$$T = \max\left(\frac{\max_j|\Delta q_j|}{\pi}, 1.0\right)$$
 
-Sekarang dipakai $T = \max(3.0,\ 1.5\cdot\max|\Delta q|)$ biar gerak terlihat jelas di RViz dan interpolasi 20 Hz (3 detik × 20 = 60 titik).
+Currently used: $T = \max(3.0, 1.5 \cdot \max|\Delta q|)$ so motion stays visible in RViz at 20 Hz interpolation (3 seconds × 20 = 60 points).
 
 ---
 
-## Tata Letak File
+## Directory Layout
 
 ```
 Robotic-Arm-Kinematics-Path-Planning/
 ├── src/
-│   ├── arm_description/      # Bentuk robot & RViz
+│   ├── arm_description/      # Robot shape & RViz
 │   │   ├── launch/display.launch.py
 │   │   ├── rviz/view_robot.rviz
 │   │   └── urdf/{robot,ur5e,workspace_objects}.urdf.xacro
-│   ├── arm_control/          # Config fake controller
+│   ├── arm_control/          # Fake controller config
 │   │   └── config/controllers.yaml
-│   ├── arm_planning/         # Otak robot
+│   ├── arm_planning/         # The robot's brain
 │   │   ├── arm_planning/{ik_solver,trajectory_planner,collision_checker,planning_coordinator}_node.py
 │   │   ├── config/{kinematics,collision_objects}.yaml
 │   │   └── launch/planning.launch.py
-│   └── arm_bringup/          # Satu klik jalanin semua
+│   └── arm_bringup/          # One command to start everything
 │       └── launch/simulation.launch.py
-├── test_pipeline_e2e.py      # Tes matematis tanpa GUI
+├── test_pipeline_e2e.py      # Math test without GUI
 ├── docs/{architecture.png, architecture.html}
 ├── PRD.md / architecture.md / instructions.md / TODO.md
 ```
 
 ---
 
-## Tiap Folder & Node Ngapain
+## Packages & Nodes
 
-- **arm_description** — Ngerakit file Xacro jadi robot utuh. `robot.urdf.xacro` nyambungin UR5e + meja + kubus + silinder dengan rantai `world → table → l0 → base_link`. `use_fake_hardware=true` biar nggak butuh Gazebo.
-- **arm_control** — Isinya cuma `controllers.yaml` buat `JointTrajectoryController` palsu.
-- **arm_planning** — Otaknya ada di sini semua: `ik_solver` (hitung sendi), `trajectory_planner` (bikin jalur), `collision_checker` (cek nabrak), `planning_coordinator` (atur urutan + jaga darurat).
-- **arm_bringup** — `simulation.launch.py` buat nyalain RViz + semua node planning sekaligus.
+- **arm_description** — Assembles the Xacro files into a complete robot. `robot.urdf.xacro` connects the UR5e to the table, cube, and cylinder via the chain `world → table → l0 → base_link`. `use_fake_hardware=true` so no Gazebo is needed.
+- **arm_control** — Just holds `controllers.yaml` for the fake `JointTrajectoryController`.
+- **arm_planning** — All the logic lives here: `ik_solver` (joint angles), `trajectory_planner` (path building), `collision_checker` (FCL checks), `planning_coordinator` (sequencing + e-stop).
+- **arm_bringup** — `simulation.launch.py` starts RViz and every planning node at once.
 
 ---
 
-## Jalur Komunikasi ROS 2
+## ROS 2 Interfaces
 
-| Topik | Tipe | Dari | Ke | Buat apa |
+| Topic | Type | From | To | Purpose |
 |---|---|---|---|---|
-| `/joint_states` | `sensor_msgs/JointState` | mock executor | RViz & planning | Posisi sendi sekarang |
-| `/planning/target_pose` | `geometry_msgs/PoseStamped` | kamu | coordinator | Tujuan end-effector |
-| `/planning/trajectory_preview` | `trajectory_msgs/JointTrajectory` | coordinator | RViz | Lihat jalur sebelum jalan |
-| `/collision_scene_markers` | `visualization_msgs/MarkerArray` | collision_checker | RViz | Kotak/silinder merah |
-| `/emergency_stop` | `std_msgs/Bool` | safety | coordinator | Tombol darurat |
+| `/joint_states` | `sensor_msgs/JointState` | mock executor | RViz & planning | Current joint angles |
+| `/planning/target_pose` | `geometry_msgs/PoseStamped` | you | coordinator | End-effector goal |
+| `/planning/trajectory_preview` | `trajectory_msgs/JointTrajectory` | coordinator | RViz | Preview path before moving |
+| `/collision_scene_markers` | `visualization_msgs/MarkerArray` | collision_checker | RViz | Red obstacle boxes |
+| `/emergency_stop` | `std_msgs/Bool` | safety | coordinator | Emergency trigger |
 
-| Service | Tipe | Server | Buat apa |
+| Service | Type | Server | Purpose |
 |---|---|---|---|
-| `/ik_solver/compute_ik` | `moveit_msgs/GetPositionIK` | ik_solver | Hitung IK |
-| `/planning/reset` | `std_srvs/Trigger` | coordinator | Buka kunci habis darurat |
+| `/ik_solver/compute_ik` | `moveit_msgs/GetPositionIK` | ik_solver | Compute IK |
+| `/planning/reset` | `std_srvs/Trigger` | coordinator | Unlock after e-stop |
 
-| Action | Tipe | Server | Client |
+| Action | Type | Server | Client |
 |---|---|---|---|
 | `/arm_controller/follow_joint_trajectory` | `control_msgs/FollowJointTrajectory` | FakeSystem | coordinator |
 
 ---
 
-## Cara Install & Build
+## Install & Build
 
 ```bash
-micromamba activate ros2_env  # atau source /opt/ros/humble/setup.bash
+micromamba activate ros2_env  # or source /opt/ros/humble/setup.bash
 pip install python-fcl scipy numpy pyyaml
 colcon build --symlink-install
 source install/setup.bash
@@ -229,27 +231,27 @@ source install/setup.bash
 
 ---
 
-## Cara Menjalankan
+## Running the System
 
-**Terminal 1 — Buka simulasi (tunggu RViz muncul):**
+**Terminal 1 — Start the simulation (wait for RViz to appear):**
 ```bash
 ./run_simulation.sh
-# password kalau diminta: kali atau ricou
+# password if asked: kali or ricou
 ```
 
-**Terminal 2 — Gerakin robot:**
+**Terminal 2 — Move the robot:**
 
-*Maju (depan):*
+*Forward:*
 ```bash
 podman exec $(podman ps -q) bash -c "source /opt/ros/humble/setup.bash && source install/setup.bash && ros2 topic pub --once /planning/target_pose geometry_msgs/msg/PoseStamped '{header: {frame_id: \"base_link\"}, pose: {position: {x: 0.55, y: 0.00, z: 0.35}, orientation: {w: 1.0}}}'"
 ```
 
-*Mundur (belakang):*
+*Backward:*
 ```bash
 podman exec $(podman ps -q) bash -c "source /opt/ros/humble/setup.bash && source install/setup.bash && ros2 topic pub --once /planning/target_pose geometry_msgs/msg/PoseStamped '{header: {frame_id: \"base_link\"}, pose: {position: {x: 0.25, y: 0.00, z: 0.35}, orientation: {w: 1.0}}}'"
 ```
 
-*Darurat + buka kunci:*
+*Emergency stop + unlock:*
 ```bash
 ros2 topic pub --once /emergency_stop std_msgs/msg/Bool "{data: true}"
 ros2 topic pub --once /emergency_stop std_msgs/msg/Bool "{data: false}"
@@ -258,15 +260,15 @@ ros2 service call /planning/reset std_srvs/srv/Trigger
 
 ---
 
-## Tes Tanpa Buka RViz
+## Headless Test
 
-Mau cek hitungannya bener tanpa buka jendela RViz?
+Check the math without opening any GUI:
 
 ```bash
 micromamba run -p ~/ros2_env python3 test_pipeline_e2e.py
 ```
 
-Kalau berhasil:
+Expected result:
 
 ```
 === TEST PIPELINE KINEMATICS & PLANNING ===
@@ -280,20 +282,20 @@ Kalau berhasil:
 
 ---
 
-## Aturan Keselamatan
+## Safety Rules
 
-1. **Darurat (`LOCKED`):** `/emergency_stop=True` → goal langsung dibatalkan,状态 jadi `LOCKED`, semua target baru ditolak. Tetap terkunci walaupun `False` lagi — harus panggil `ros2 service call /planning/reset` baru buka.
-2. **Batas kecepatan:** `≤π rad/s` tiap sendi. Kalau ada titik yang kecepatannya lewat, jalurnya ditolak mentah-mentah (bukan dibatasin paksa).
-3. **Batas jangkauan:** Silinder `R>0.85m` atau `|Z|>1.2m` → ditolak `OUT_OF_WORKSPACE`.
-4. **Tabrakan:** Nggak ada bypass. Kalau scene belum kebaca, semua jalur ditolak.
+1. **Emergency stop (`LOCKED`):** `/emergency_stop=True` cancels the active goal, sets state to `LOCKED`, and rejects all new targets. It stays locked even after `False` — call `ros2 service call /planning/reset` to unlock.
+2. **Speed limit:** `≤ π rad/s` per joint. Any waypoint over the limit rejects the trajectory outright (never clamped).
+3. **Workspace limit:** cylinder `R > 0.85 m` or `|Z| > 1.2 m` → rejected with `OUT_OF_WORKSPACE`.
+4. **Collisions:** no bypass exists. If the scene has not loaded, every trajectory is rejected.
 
 ---
 
-## Kalau Ada Kendala
+## Troubleshooting
 
-- **Simulasi nggak jalan?** Pastikan Docker/podman jalan, lalu `chmod +x run_simulation.sh`.
-- **`joint_state_publisher_gui` nggak ada?** `sudo apt install ros-humble-joint-state-publisher-gui`
-- **`trac_ik_python` gagal import?** Wajar kalau `moveit_core` belum kebuild. Fallback geometri otomatis jalan. Mau TRAC-IK beneran: `colcon build --packages-up-to trac_ik_python`.
+- **Simulation will not start?** Make sure podman/docker is running, then `chmod +x run_simulation.sh`.
+- **`joint_state_publisher_gui` missing?** `sudo apt install ros-humble-joint-state-publisher-gui`
+- **`trac_ik_python` import fails?** Normal when `moveit_core` has not been built — the geometric fallback kicks in automatically. For real TRAC-IK: `colcon build --packages-up-to trac_ik_python`.
 
 ---
 
@@ -301,4 +303,4 @@ Kalau berhasil:
 
 - **Rico Lazzami** ([@ricolazzami](https://github.com/ricolazzami))
 - **Project:** DecodeLabs Internship Project 1
-- **Lisensi:** Apache-2.0
+- **License:** Apache-2.0
