@@ -1,4 +1,4 @@
-# DecodeLabs Project 1: Robotic Arm Kinematics & Path Planning
+# Robotic Arm Kinematics & Path Planning
 
 A digital brain for a 6-DOF UR5e manipulator running on ROS 2. Send a target pose in space (position + orientation), and the system computes the joint angles, builds a smooth trajectory, checks it for collisions, then moves the arm in RViz. Gazebo is intentionally left out to keep things light — RViz + FakeSystem is enough here.
 
