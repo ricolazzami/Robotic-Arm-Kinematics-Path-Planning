@@ -5,6 +5,8 @@
 
 ## 1. Diagram Arsitektur Keseluruhan
 
+![Diagram Arsitektur Keseluruhan](docs/architecture.png)
+
 ```
                          ┌─────────────────────┐
                          │   USER / TASK NODE   │
